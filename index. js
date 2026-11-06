@@ -1,0 +1,61 @@
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const pino = require('pino');
+
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('session');
+    const { version } = await fetchLatestBaileysVersion();
+
+    const sock = makeWASocket({
+        version,
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: true,
+        auth: state,
+        browser: ['BANKI-V1', 'Chrome', '1.0.0']
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed, reconnecting:', shouldReconnect);
+            if (shouldReconnect) startBot();
+        } else if (connection === 'open') {
+            console.log('BANKI-V1 is now online!');
+        }
+    });
+
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message || msg.key.fromMe) return;
+
+        const from = msg.key.remoteJid;
+        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+        const command = body.trim().toLowerCase();
+
+        if (command === '.ping') {
+            await sock.sendMessage(from, { text: 'Pong! 🏓\nBANKI-V1 is online and working.' });
+        }
+
+        if (command === '.menu') {
+            const menu = `*BANKI-V1 MENU*\n\n` +
+            `*.ping* - Check if bot is online\n` +
+            `*.menu* - Show this menu\n` +
+            `*.owner* - Show owner info\n` +
+            `*.alive* - Check bot status\n\n` +
+            `Made by Banki123-hub`;
+            await sock.sendMessage(from, { text: menu });
+        }
+
+        if (command === '.owner') {
+            await sock.sendMessage(from, { text: 'Owner of BANKI-V1 is Banki123-hub 👑' });
+        }
+
+        if (command === '.alive') {
+            await sock.sendMessage(from, { text: 'I am alive! ✅\nBANKI-V1 V1.0.0' });
+        }
+    });
+}
+
+startBot();
